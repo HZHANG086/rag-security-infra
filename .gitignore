@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+.venv/
+.DS_Store
+.env
+.env.*
+*.key
+*.pem
+*.kubeconfig
+/artifacts/
+/local/

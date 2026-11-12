@@ -1,0 +1,24 @@
+name: RAG security and Kubernetes demo
+"on": [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 -m unittest discover -s tests -v
+      - uses: helm/kind-action@v1.15.1
+        with:
+          cluster_name: rag-security
+          wait: 120s
+      - run: |
+          docker build -t rag-security:demo .
+          kind load docker-image --name rag-security rag-security:demo
+          python3 -m rag_infra.cluster --context kind-rag-security --image rag-security:demo
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rag-eval-reports
+          path: artifacts/rag-eval/
