@@ -59,7 +59,8 @@ class BackendFailure(Exception):
     pass
 
 
-def http_backend(endpoint, payload, timeout=5, retries=1, opener=urlopen, sleeper=time.sleep):
+def http_backend(endpoint, payload, timeout=5, retries=1, opener=urlopen, sleeper=time.sleep, *,
+                 expected_version=None):
     headers = {"Content-Type": "application/json", "Accept": "application/json"}
     if token := os.getenv("RAG_EVAL_BEARER"):
         headers["Authorization"] = "Bearer " + token
@@ -67,6 +68,8 @@ def http_backend(endpoint, payload, timeout=5, retries=1, opener=urlopen, sleepe
     for attempt in range(retries + 1):
         try:
             with opener(req, timeout=timeout) as response:
+                if expected_version is not None and response.headers.get("X-Model-Version") != expected_version:
+                    raise BackendFailure("unexpected_model_version")
                 return json.load(response)
         except HTTPError as exc:
             code = exc.code
@@ -189,6 +192,7 @@ def main(argv=None):
     parser.add_argument("--parallelism", type=int, default=2)
     parser.add_argument("--endpoint")
     parser.add_argument("--model", required=True)
+    parser.add_argument("--expected-http-version")
     parser.add_argument("--prompt", required=True)
     parser.add_argument("--fixture", choices=["guarded", "regressed"], default="guarded")
     parser.add_argument("--backend-mode", choices=["fixture", "rag"], default="fixture")
@@ -203,7 +207,7 @@ def main(argv=None):
 
     def backend(payload):
         if args.endpoint:
-            return http_backend(args.endpoint, payload)
+            return http_backend(args.endpoint, payload, expected_version=args.expected_http_version)
         return fixture_reply(payload, args.fixture)
 
     def execute(index):

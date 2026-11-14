@@ -9,7 +9,8 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from rag_infra.cluster import Kubectl, require
-from rag_infra.platform import BASELINE, CANDIDATE, SCENARIOS
+from rag_infra.platform import BASELINE, CANDIDATE, SCENARIOS, response_version
+from rag_infra.registry import RELEASE, REPORT, Registry
 
 ROOT = Path(__file__).resolve().parent
 EXPECTED = {
@@ -41,8 +42,15 @@ def validate(scenario, result, evaluation):
     require(actual == expected, f"{scenario}: expected {expected}, got {actual}")
     require(evaluation["baseline"]["shards"] == [0, 1, 2, 3], "baseline shards missing")
     samples = result["final_probes"] or result["promotion_probes"]
-    require(samples[-1]["valid_answer"] and samples[-1]["version"] == result["active_version"],
+    active_ref = result["registry"]["champion"]
+    require(samples[-1]["valid_answer"] and samples[-1]["version"] == response_version(active_ref),
             "live endpoint must serve the reported version")
+    require(evaluation["baseline"]["registry"]["version"] == "1"
+            and evaluation["candidate"]["registry"]["version"] == "2",
+            "expected two distinct registered versions")
+    require(active_ref == evaluation["candidate" if scenario == "promotion" else "baseline"]["registry"]
+            and result["registry"]["candidate"] == evaluation["candidate"]["registry"],
+            "registry aliases do not match release result")
     candidate = evaluation["candidate"]
     if scenario == "unschedulable":
         require(any(isinstance(item, dict) and item.get("type") == "scheduling_failed"
@@ -52,7 +60,7 @@ def validate(scenario, result, evaluation):
     if scenario == "regression":
         require(candidate["metrics"]["attack_success"]["count"] == 1, "expected one injected response")
     if scenario == "rollback":
-        require(any(s["status"] == 503 and s["version"] == CANDIDATE
+        require(any(s["status"] == 503 and s["version"] == response_version(candidate["registry"])
                     for s in result["promotion_probes"]), "candidate fault not observed through the live service")
         require(result["failed_probe_requests"] >= 1 and result["recovery_seconds"] >= 0, "missing rollback metrics")
 
@@ -95,6 +103,39 @@ def run(scenario, context, prefix, output):
     return result
 
 
+def verify_registry(uri, output, reports):
+    for scenario, result in reports.items():
+        directory = output / scenario
+        evaluation = json.loads((directory / "evaluation-result.json").read_text())
+        refs = {report["model"]: report["registry"] for report in evaluation.values()}
+        registry = Registry(uri, refs[BASELINE]["name"])
+        kubernetes = json.loads((directory / "inferenceservices.json").read_text())
+        deployed = {item["metadata"]["name"]: item["metadata"]["annotations"]["rag-infra/registered-version"]
+                    for item in kubernetes["items"]}
+        require(deployed == {name: ref["version"] for name, ref in refs.items()}, "deployed registry versions mismatch")
+        aliases = {alias: registry.alias(alias) for alias in ("champion", "candidate")}
+        require(aliases == result["registry"], "MLflow aliases do not match the release report")
+        runs = {}
+        for report in evaluation.values():
+            ref = report["registry"]
+            run = registry.get_run(ref["run_id"])
+            tags = {tag["key"]: tag["value"] for tag in run["data"]["tags"]}
+            require(run["info"]["status"] == "FINISHED" and tags["model_version"] == ref["version"]
+                    and tags["evaluation_status"] == report["status"] and tags["dataset_sha256"] == report["dataset_sha256"]
+                    and tags["prompt_version"] == report["prompt"], "MLflow run tags do not match evaluation")
+            metrics = {metric["key"]: metric["value"] for metric in run["data"]["metrics"]}
+            require(metrics["completion_rate"] == report["metrics"]["completion_rate"],
+                    "MLflow completion metric does not match evaluation")
+            require(registry.artifact(run, REPORT) == report and registry.artifact(run, RELEASE) == result,
+                    "MLflow artifacts do not match the workflow reports")
+            require(registry.manifest(ref)["metadata"]["name"] == report["model"], "deployment artifact mismatch")
+            runs[ref["version"]] = {"run_id": ref["run_id"], "tags": tags, "metrics": metrics}
+        (directory / "mlflow-verification.json").write_text(
+            json.dumps({"aliases": aliases, "runs": runs, "deployed": deployed}, indent=2) + "\n")
+    print(f"Verified registry aliases, deployments, eight runs and report artifacts across {len(reports)} scenarios.",
+          flush=True)
+
+
 def poll(k, name):
     deadline = time.monotonic() + 565
     phase = "Pending"
@@ -110,6 +151,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--context", required=True, choices=["kind-rag-platform"])
     parser.add_argument("--output", type=Path, default=Path("artifacts/platform"))
+    parser.add_argument("--mlflow-uri", default="http://127.0.0.1:5000")
     args = parser.parse_args()
     prefix = "rag-platform-" + secrets.token_hex(3)
     with ThreadPoolExecutor(max_workers=len(SCENARIOS)) as pool:
@@ -124,6 +166,7 @@ def main():
                 failures[scenario] = str(exc)
     (args.output / "summary.json").write_text(json.dumps({"scenarios": report, "failures": failures}, indent=2) + "\n")
     require(not failures, f"release scenario failures: {failures}")
+    verify_registry(args.mlflow_uri, args.output, report)
 
 
 if __name__ == "__main__":

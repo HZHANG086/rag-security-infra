@@ -76,11 +76,13 @@ def deploy(k, name, image, profile, weather):
               "spec": {"selector": selector, "ports": [{"port": 8080, "targetPort": 8080}]}})
 
 
-def job_manifest(name, image, endpoint, model, prompt, fault=False):
+def job_manifest(name, image, endpoint, model, prompt, fault=False, *, expected_version=None):
     spec = container(image, "evaluate", command=["python", "-m", "rag_infra.core"], args=[
         "shard", "--suite", SUITE_PATH, "--shards", str(SHARDS), "--endpoint", endpoint,
         "--model", model, "--prompt", prompt,
     ], fault=fault)
+    if expected_version is not None:
+        spec["args"] += ["--expected-http-version", expected_version]
     return {"apiVersion": "batch/v1", "kind": "Job", "metadata": {"name": name}, "spec": {
         "completionMode": "Indexed", "completions": SHARDS, "parallelism": PARALLELISM,
         "backoffLimitPerIndex": 1, "activeDeadlineSeconds": 150,
@@ -100,9 +102,9 @@ def scheduling_failures(pods):
     return issues
 
 
-def run_job(k, suite, name, image, service, model, prompt, out, fault=False, *, port=8080):
+def run_job(k, suite, name, image, service, model, prompt, out, fault=False, *, port=8080, expected_version=None):
     endpoint = f"http://{service}:{port}/rag/answer"
-    k.create(job_manifest(name, image, endpoint, model, prompt, fault))
+    k.create(job_manifest(name, image, endpoint, model, prompt, fault, expected_version=expected_version))
     deadline = time.monotonic() + (50 if fault else 160)
     reports, findings = [], []
     while True:

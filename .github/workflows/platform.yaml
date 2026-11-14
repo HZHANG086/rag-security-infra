@@ -21,12 +21,19 @@ jobs:
           cluster_name: rag-platform
           node_image: kindest/node:v1.34.2
           wait: 120s
-      - name: Install KServe and Argo Workflows
+      - name: Install KServe, Argo Workflows and MLflow
         run: bash platform/install.sh kind-rag-platform
       - name: Run release scenarios
         run: |
           docker build -t rag-platform:demo -f platform/Dockerfile .
           kind load docker-image --name rag-platform rag-platform:demo
+          kubectl --context kind-rag-platform -n mlflow port-forward svc/mlflow 5000:5000 > /tmp/rag-mlflow-port.log 2>&1 &
+          trap 'kill $! 2>/dev/null || true' EXIT
+          for attempt in {1..20}; do
+            if curl -fsS http://127.0.0.1:5000/health; then break; fi
+            if [[ "$attempt" == 20 ]]; then cat /tmp/rag-mlflow-port.log; exit 1; fi
+            sleep 1
+          done
           PYTHONPATH=. python3 platform/demo.py --context kind-rag-platform
       - uses: actions/upload-artifact@v4
         if: always()

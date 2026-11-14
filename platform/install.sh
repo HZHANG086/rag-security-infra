@@ -26,3 +26,6 @@ done
 "${k[@]}" -n argo patch configmap workflow-controller-configmap --type=merge \
   -p '{"data":{"artifactRepository":null}}'
 "${k[@]}" -n argo rollout status deployment/workflow-controller --timeout=180s
+"${k[@]}" create namespace mlflow --dry-run=client -o yaml | "${k[@]}" apply -f -
+"${k[@]}" -n mlflow apply -f "$(dirname "$0")/mlflow.yaml"
+"${k[@]}" -n mlflow rollout status deployment/mlflow --timeout=180s

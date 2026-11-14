@@ -1,0 +1,49 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mlflow
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: mlflow}
+  template:
+    metadata:
+      labels: {app: mlflow}
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: mlflow
+          image: ghcr.io/mlflow/mlflow:v3.18.0@sha256:257204c77980b0f3450a26eb6089e487603fcdd4509529eadaf88f90669f5c13
+          command: ["mlflow", "server"]
+          args:
+            - "--host=0.0.0.0"
+            - "--port=5000"
+            - "--workers=1"
+            - "--backend-store-uri=sqlite:////data/mlflow.db"
+            - "--artifacts-destination=/data/artifacts"
+            - "--allowed-hosts=mlflow,mlflow.mlflow.svc,mlflow.mlflow.svc.cluster.local,localhost,127.0.0.1"
+          ports:
+            - {name: http, containerPort: 5000}
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+              httpHeaders:
+                - {name: Host, value: localhost}
+            periodSeconds: 2
+          resources:
+            requests: {cpu: 100m, memory: 256Mi}
+          volumeMounts:
+            - {name: data, mountPath: /data}
+      volumes:
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mlflow
+spec:
+  selector: {app: mlflow}
+  ports:
+    - {name: http, port: 5000, targetPort: http}
