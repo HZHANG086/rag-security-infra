@@ -9,8 +9,16 @@ k=(kubectl --context "$context")
 "${k[@]}" create namespace kserve --dry-run=client -o yaml | "${k[@]}" apply -f -
 kserve=https://github.com/kserve/kserve/releases/download/v0.20.0
 "${k[@]}" apply --server-side -f "$kserve/kserve-crds.yaml"
-"${k[@]}" wait --for=condition=Established crd/clusterstoragecontainers.serving.kserve.io \
-  crd/inferenceservices.serving.kserve.io --timeout=120s
+kubectl_retry() {
+  for attempt in {1..6}; do
+    if "${k[@]}" "$@"; then return 0; fi
+    if [[ "$attempt" == 6 ]]; then return 1; fi
+    sleep 2
+  done
+}
+for resource in clusterstoragecontainers inferenceservices; do
+  kubectl_retry wait --for=condition=Established "crd/$resource.serving.kserve.io" --timeout=20s
+done
 "${k[@]}" apply --server-side -f "$kserve/kserve.yaml"
 "${k[@]}" -n kserve rollout status deployment/kserve-controller-manager --timeout=180s
 "${k[@]}" create namespace argo --dry-run=client -o yaml | "${k[@]}" apply -f -

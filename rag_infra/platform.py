@@ -49,7 +49,15 @@ def inferenceservice(name, image, profile, fail_probe=False):
 def deploy(k, image, scenario):
     k.create(inferenceservice(BASELINE, image, "guarded"))
     k.create(inferenceservice(CANDIDATE, image, SCENARIOS[scenario], scenario == "rollback"))
-    k.run("wait", "--for=condition=Ready", "inferenceservice", BASELINE, CANDIDATE, "--timeout=115s")
+    deadline = time.monotonic() + 115
+    for name in (BASELINE, CANDIDATE):
+        while True:
+            service = k.get("inferenceservice", name)
+            conditions = service.get("status", {}).get("conditions") or []
+            if any(c["type"] == "Ready" and c["status"] == "True" for c in conditions):
+                break
+            require(time.monotonic() < deadline, f"{name} did not become Ready: {conditions}")
+            time.sleep(2)
     stable = predictor(k, BASELINE)["spec"]
     candidate = predictor(k, CANDIDATE)["spec"]
     require(stable["selector"] != candidate["selector"], "predictors must use separate selectors")
