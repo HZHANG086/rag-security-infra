@@ -1,0 +1,22 @@
+name: Inspect RAG evaluation
+"on":
+  push:
+    branches: [rag-evaluation-inspect]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  replay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r evaluation/requirements.txt
+      - run: python -m evaluation.inspect_rag
+      - uses: actions/upload-artifact@v4
+        with:
+          name: inspect-rag-results
+          path: artifacts/inspect-rag/
