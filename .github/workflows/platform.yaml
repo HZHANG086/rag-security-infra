@@ -1,0 +1,35 @@
+name: RAG model release platform
+"on":
+  push:
+    branches: [ai-platform-rag]
+    paths:
+      - 'rag_infra/**'
+      - 'platform/**'
+      - '.github/workflows/platform.yaml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 -m unittest discover -s tests -v
+      - uses: helm/kind-action@v1.15.1
+        with:
+          cluster_name: rag-platform
+          node_image: kindest/node:v1.34.2
+          wait: 120s
+      - name: Install KServe and Argo Workflows
+        run: bash platform/install.sh kind-rag-platform
+      - name: Run release scenarios
+        run: |
+          docker build -t rag-platform:demo -f platform/Dockerfile .
+          kind load docker-image --name rag-platform rag-platform:demo
+          PYTHONPATH=. python3 platform/demo.py --context kind-rag-platform
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: platform-release-evidence
+          path: artifacts/platform/

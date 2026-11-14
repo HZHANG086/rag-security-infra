@@ -20,11 +20,14 @@ class Kubectl:
         self.namespace = namespace
 
     def run(self, *args, payload=None, scoped=True):
-        command = ["kubectl", "--context", self.context]
+        command = ["kubectl"]
+        if self.context:
+            command += ["--context", self.context]
         if scoped:
             command += ["--namespace", self.namespace]
+        stdin = payload if isinstance(payload, str) else json.dumps(payload) if payload is not None else None
         completed = subprocess.run(
-            command + list(args), input=json.dumps(payload) if payload else None, text=True,
+            command + list(args), input=stdin, text=True,
             capture_output=True, timeout=135,
         )
         if completed.returncode:
@@ -97,8 +100,8 @@ def scheduling_failures(pods):
     return issues
 
 
-def run_job(k, suite, name, image, service, model, prompt, out, fault=False):
-    endpoint = f"http://{service}:8080/rag/answer"
+def run_job(k, suite, name, image, service, model, prompt, out, fault=False, *, port=8080):
+    endpoint = f"http://{service}:{port}/rag/answer"
     k.create(job_manifest(name, image, endpoint, model, prompt, fault))
     deadline = time.monotonic() + (50 if fault else 160)
     reports, findings = [], []

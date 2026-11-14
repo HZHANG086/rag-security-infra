@@ -1,0 +1,59 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  name: rag-release
+spec:
+  serviceAccountName: rag-release
+  entrypoint: release
+  activeDeadlineSeconds: 550
+  arguments:
+    parameters:
+      - name: image
+        value: rag-platform:demo
+      - name: scenario
+        value: promotion
+  templates:
+    - name: release
+      dag:
+        tasks:
+          - name: deploy
+            template: stage
+            arguments:
+              parameters:
+                - {name: stage, value: deploy}
+          - name: evaluate
+            dependencies: [deploy]
+            template: stage
+            arguments:
+              parameters:
+                - {name: stage, value: evaluate}
+          - name: promote
+            dependencies: [evaluate]
+            template: stage
+            arguments:
+              parameters:
+                - {name: stage, value: release}
+    - name: stage
+      inputs:
+        parameters:
+          - name: stage
+      container:
+        image: "{{workflow.parameters.image}}"
+        imagePullPolicy: Never
+        command: ["python", "-m", "rag_infra.platform"]
+        args:
+          - "{{inputs.parameters.stage}}"
+          - "--namespace"
+          - "{{workflow.namespace}}"
+          - "--image"
+          - "{{workflow.parameters.image}}"
+          - "--scenario"
+          - "{{workflow.parameters.scenario}}"
+        securityContext:
+          runAsNonRoot: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: ["ALL"]
+        resources:
+          requests: {cpu: 50m, memory: 64Mi}
+          limits: {cpu: 500m, memory: 192Mi}
