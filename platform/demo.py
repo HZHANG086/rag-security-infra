@@ -78,6 +78,16 @@ def run(scenario, context, prefix, output):
                 (directory / f"{kind}.json").write_text(k.run("get", kind, "-o", "json"))
             except (RuntimeError, subprocess.TimeoutExpired):
                 pass
+        pods = directory / "pods.json"
+        if pods.exists():
+            for pod in json.loads(pods.read_text())["items"]:
+                pod_name = pod["metadata"]["name"]
+                if pod.get("status", {}).get("phase") not in {"Succeeded", "Failed"}:
+                    continue
+                try:
+                    (directory / f"{pod_name}.log").write_text(k.run("logs", pod_name, "--all-containers=true"))
+                except (RuntimeError, subprocess.TimeoutExpired):
+                    pass
     require(completed == "Succeeded" and deployment and evaluation and result,
             f"{scenario}: workflow ended with {completed} or missing evidence, see {directory}")
     validate(scenario, result, evaluation)

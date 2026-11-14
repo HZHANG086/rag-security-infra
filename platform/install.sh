@@ -15,4 +15,6 @@ kserve=https://github.com/kserve/kserve/releases/download/v0.20.0
 "${k[@]}" -n kserve rollout status deployment/kserve-controller-manager --timeout=180s
 "${k[@]}" create namespace argo --dry-run=client -o yaml | "${k[@]}" apply -f -
 "${k[@]}" apply --server-side -n argo -f https://github.com/argoproj/argo-workflows/releases/download/v4.1.6/quick-start-minimal.yaml
+"${k[@]}" -n argo patch configmap workflow-controller-configmap --type=merge \
+  -p '{"data":{"artifactRepository":null}}'
 "${k[@]}" -n argo rollout status deployment/workflow-controller --timeout=180s
