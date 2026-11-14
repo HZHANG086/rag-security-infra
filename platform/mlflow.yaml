@@ -21,7 +21,7 @@ spec:
             - "--workers=1"
             - "--backend-store-uri=sqlite:////data/mlflow.db"
             - "--artifacts-destination=/data/artifacts"
-            - "--allowed-hosts=mlflow,mlflow.mlflow.svc,mlflow.mlflow.svc.cluster.local,localhost,127.0.0.1"
+            - "--allowed-hosts=mlflow.mlflow.svc.cluster.local:5000,localhost:5000,127.0.0.1:5000"
           ports:
             - {name: http, containerPort: 5000}
           readinessProbe:

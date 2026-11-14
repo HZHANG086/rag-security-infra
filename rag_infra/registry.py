@@ -3,6 +3,7 @@
 import json
 import time
 from urllib.parse import quote, urlencode
+from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 from rag_infra.core import canonical_digest
@@ -24,9 +25,14 @@ class Registry:
         data = None if payload is None else json.dumps(payload).encode()
         headers = {"Content-Type": "application/json"} if data is not None else {}
         request = Request(url, data=data, headers=headers, method=method)
-        with urlopen(request, timeout=12) as response:
-            body = response.read()
-            return json.loads(body) if body else {}
+        try:
+            with urlopen(request, timeout=12) as response:
+                body = response.read()
+                return json.loads(body) if body else {}
+        except HTTPError as error:
+            with error:
+                detail = error.read(1024).decode("utf-8", errors="replace")
+            raise RuntimeError(f"MLflow {resource} returned HTTP {error.code}: {detail}") from None
 
     def rest(self, operation, **kwargs):
         return self.request(f"mlflow/{operation}", **kwargs)
